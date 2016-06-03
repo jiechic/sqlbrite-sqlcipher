@@ -16,15 +16,17 @@
 package com.squareup.sqlbrite;
 
 import android.content.ContentValues;
+import android.content.Context;
 import android.database.Cursor;
-import android.database.sqlite.SQLiteDatabase;
-import android.database.sqlite.SQLiteOpenHelper;
-import android.database.sqlite.SQLiteTransactionListener;
 import android.support.annotation.CheckResult;
 import android.support.annotation.IntDef;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import com.squareup.sqlbrite.SqlBrite.Query;
+
+import net.sqlcipher.database.SQLiteDatabase;
+import net.sqlcipher.database.SQLiteOpenHelper;
+import net.sqlcipher.database.SQLiteTransactionListener;
+
 import java.io.Closeable;
 import java.lang.annotation.Retention;
 import java.util.Arrays;
@@ -32,22 +34,23 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+
 import rx.Observable;
 import rx.Scheduler;
 import rx.Subscriber;
 import rx.functions.Action0;
 import rx.functions.Func1;
 import rx.subjects.PublishSubject;
-
-import static android.database.sqlite.SQLiteDatabase.CONFLICT_ABORT;
-import static android.database.sqlite.SQLiteDatabase.CONFLICT_FAIL;
-import static android.database.sqlite.SQLiteDatabase.CONFLICT_IGNORE;
-import static android.database.sqlite.SQLiteDatabase.CONFLICT_NONE;
-import static android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE;
-import static android.database.sqlite.SQLiteDatabase.CONFLICT_ROLLBACK;
+import static com.squareup.sqlbrite.SqlBrite.Query;
 import static java.lang.System.nanoTime;
 import static java.lang.annotation.RetentionPolicy.SOURCE;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
+import static net.sqlcipher.database.SQLiteDatabase.CONFLICT_ABORT;
+import static net.sqlcipher.database.SQLiteDatabase.CONFLICT_FAIL;
+import static net.sqlcipher.database.SQLiteDatabase.CONFLICT_IGNORE;
+import static net.sqlcipher.database.SQLiteDatabase.CONFLICT_NONE;
+import static net.sqlcipher.database.SQLiteDatabase.CONFLICT_REPLACE;
+import static net.sqlcipher.database.SQLiteDatabase.CONFLICT_ROLLBACK;
 
 /**
  * A lightweight wrapper around {@link SQLiteOpenHelper} which allows for continuously observing
@@ -99,6 +102,7 @@ public final class BriteDatabase implements Closeable {
   // Read and write guarded by 'databaseLock'. Lazily initialized. Use methods to access.
   private volatile SQLiteDatabase readableDatabase;
   private volatile SQLiteDatabase writeableDatabase;
+  private final char[] password;
   private final Object databaseLock = new Object();
 
   private final Scheduler scheduler;
@@ -106,8 +110,10 @@ public final class BriteDatabase implements Closeable {
   // Package-private to avoid synthetic accessor method for 'transaction' instance.
   volatile boolean logging;
 
-  BriteDatabase(SQLiteOpenHelper helper, SqlBrite.Logger logger, Scheduler scheduler) {
+  BriteDatabase(Context context,SQLiteOpenHelper helper, @NonNull char[] password, SqlBrite.Logger logger, Scheduler scheduler) {
+    SQLiteDatabase.loadLibs(context);
     this.helper = helper;
+    this.password = password;
     this.logger = logger;
     this.scheduler = scheduler;
   }
@@ -126,7 +132,7 @@ public final class BriteDatabase implements Closeable {
         db = readableDatabase;
         if (db == null) {
           if (logging) log("Creating readable database");
-          db = readableDatabase = helper.getReadableDatabase();
+          db = readableDatabase = helper.getReadableDatabase(password);
         }
       }
     }
@@ -141,7 +147,7 @@ public final class BriteDatabase implements Closeable {
         db = writeableDatabase;
         if (db == null) {
           if (logging) log("Creating writeable database");
-          db = writeableDatabase = helper.getWritableDatabase();
+          db = writeableDatabase = helper.getWritableDatabase(password);
         }
       }
     }

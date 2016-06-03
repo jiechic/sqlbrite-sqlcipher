@@ -16,8 +16,8 @@
 package com.example.sqlbrite.todo.db;
 
 import android.content.Context;
-import android.database.sqlite.SQLiteDatabase;
-import android.database.sqlite.SQLiteOpenHelper;
+import net.sqlcipher.database.SQLiteDatabase;
+import net.sqlcipher.database.SQLiteOpenHelper;
 
 final class DbOpenHelper extends SQLiteOpenHelper {
   private static final int VERSION = 1;

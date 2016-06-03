@@ -22,8 +22,10 @@ import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteException;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.runner.AndroidJUnit4;
+
 import com.squareup.sqlbrite.BriteDatabase.Transaction;
 import com.squareup.sqlbrite.TestDb.Employee;
+
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayList;

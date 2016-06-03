@@ -18,6 +18,7 @@ package com.squareup.sqlbrite;
 import android.database.Cursor;
 import android.support.annotation.Nullable;
 import android.support.test.InstrumentationRegistry;
+
 import com.squareup.sqlbrite.SqlBrite.Query;
 import com.squareup.sqlbrite.TestDb.Employee;
 import java.util.List;

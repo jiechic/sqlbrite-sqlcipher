@@ -22,6 +22,7 @@ import android.database.MatrixCursor;
 import android.net.Uri;
 import android.test.ProviderTestCase2;
 import android.test.mock.MockContentProvider;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;

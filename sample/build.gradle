@@ -32,6 +32,7 @@ dependencies {
   provided rootProject.ext.findbugsJsr305
   provided rootProject.ext.findbugsAnnotations
 
+  compile rootProject.ext.sqlcipher
   // In-repo dependencies.
   compile project(':sqlbrite')
 }

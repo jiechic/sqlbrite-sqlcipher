@@ -16,10 +16,13 @@
 package com.example.sqlbrite.todo;
 
 import android.app.Application;
+
 import com.example.sqlbrite.todo.db.DbModule;
+
+import javax.inject.Singleton;
+
 import dagger.Module;
 import dagger.Provides;
-import javax.inject.Singleton;
 
 @Module(
     includes = {
@@ -36,4 +39,5 @@ public final class TodoModule {
   @Provides @Singleton Application provideApplication() {
     return application;
   }
+
 }

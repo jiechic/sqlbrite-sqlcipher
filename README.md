@@ -1,10 +1,10 @@
 SQLBrite
 ========
 
-A lightweight wrapper around `SQLiteOpenHelper` and `ContentResolver` which introduces reactive
+A lightweight wrapper around `SQLiteOpenHelper` and `ContentResolver` for `SQLCipher` which introduces reactive
 stream semantics to queries.
 
-
+**Change from sqlbrite for add support `SQLCipher`**
 
 Usage
 -----
@@ -18,7 +18,7 @@ SqlBrite sqlBrite = SqlBrite.create();
 Pass a `SQLiteOpenHelper` instance and a `Scheduler` to create a `BriteDatabase`.
 
 ```java
-BriteDatabase db = sqlBrite.wrapDatabaseHelper(openHelper, Schedulers.io());
+BriteDatabase db = sqlBrite.wrapDatabaseHelper(context, openHelper, password, Schedulers.io());
 ```
 
 A `Scheduler` is required for a few reasons, but the most important is that query notifications can
@@ -148,7 +148,8 @@ Download
 --------
 
 ```groovy
-compile 'com.squareup.sqlbrite:sqlbrite:0.6.3'
+compile 'com.jiechic.library.sqlbrite:sqlbrite-sqlcipher:0.6.4'
+compile 'net.zetetic:android-database-sqlcipher:3.4.0@aar'
 ```
 
 Snapshots of the development version are available in [Sonatype's `snapshots` repository][snap].

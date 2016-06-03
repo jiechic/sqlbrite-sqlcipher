@@ -1,6 +1,7 @@
 buildscript {
   dependencies {
     classpath rootProject.ext.androidPlugin
+    classpath rootProject.ext.bintrayPlugin
   }
 }
 
@@ -10,6 +11,7 @@ apply from: rootProject.file('gradle/android-findbugs.gradle')
 dependencies {
   compile rootProject.ext.rxJava
   compile rootProject.ext.supportAnnotations
+  provided rootProject.ext.sqlcipher
 
   androidTestCompile rootProject.ext.supportTestRunner
   androidTestCompile(rootProject.ext.truth) {
@@ -40,6 +42,7 @@ android {
 
   lintOptions {
     textOutput 'stdout'
+    abortOnError false
   }
 
   buildTypes {
@@ -66,4 +69,4 @@ if (isCi()) {
   }
 }
 
-apply from: rootProject.file('gradle/gradle-mvn-push.gradle')
+apply from: rootProject.file('gradle/gradle-jcenter-push.gradle')

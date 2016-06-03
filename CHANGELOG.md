@@ -1,5 +1,13 @@
 Change Log
-=========
+==========
+
+Version 0.6.4 *(2016-06-03)*
+----------------------------
+
+from code https://github.com/square/sqlbrite
+change database for android.database.sqlclient to net.zetetic.database
+Add Full Database Encryption
+
 
 Version 0.6.3 *(2016-04-13)*
 ----------------------------

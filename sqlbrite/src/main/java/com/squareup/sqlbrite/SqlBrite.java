@@ -16,12 +16,15 @@
 package com.squareup.sqlbrite;
 
 import android.content.ContentResolver;
+import android.content.Context;
 import android.database.Cursor;
-import android.database.sqlite.SQLiteOpenHelper;
 import android.support.annotation.CheckResult;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.util.Log;
+
+import net.sqlcipher.database.SQLiteOpenHelper;
+
 import java.util.List;
 import rx.Observable;
 import rx.Observable.Operator;
@@ -65,9 +68,14 @@ public final class SqlBrite {
    * @param scheduler The {@link Scheduler} on which items from {@link BriteDatabase#createQuery}
    * will be emitted.
    */
-  @CheckResult @NonNull public BriteDatabase wrapDatabaseHelper(@NonNull SQLiteOpenHelper helper,
-      @NonNull Scheduler scheduler) {
-    return new BriteDatabase(helper, logger, scheduler);
+  @CheckResult @NonNull public BriteDatabase wrapDatabaseHelper(@NonNull Context context,@NonNull SQLiteOpenHelper helper,
+                                                                @NonNull String password,@NonNull Scheduler scheduler) {
+    return wrapDatabaseHelper(context, helper, password.toCharArray(), scheduler);
+  }
+
+  @CheckResult @NonNull public BriteDatabase wrapDatabaseHelper(@NonNull Context context,@NonNull SQLiteOpenHelper helper,
+                                                                @NonNull char[] password,@NonNull Scheduler scheduler) {
+    return new BriteDatabase(context,helper, password, logger, scheduler);
   }
 
   /**

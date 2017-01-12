@@ -12,8 +12,8 @@ allprojects {
 }
 
 ext {
-  androidPlugin = 'com.android.tools.build:gradle:2.2.2'
-  bintrayPlugin = 'com.jfrog.bintray.gradle:gradle-bintray-plugin:1.6'
+  androidPlugin = 'com.android.tools.build:gradle:2.2.3'
+  bintrayPlugin = 'com.jfrog.bintray.gradle:gradle-bintray-plugin:1.7.3'
 
   compileSdkVersion = 25
   buildToolsVersion = '25.0.1'
@@ -40,7 +40,7 @@ ext {
   findbugsJsr305 = 'com.google.code.findbugs:jsr305:3.0.0'
   findbugsAnnotations = 'com.google.code.findbugs:annotations:3.0.0'
 
-  sqlcipher = 'net.zetetic:android-database-sqlcipher:3.4.0@aar'
+  sqlcipher = 'net.zetetic:android-database-sqlcipher:3.5.4@aar'
 }
 
 configurations {

@@ -148,8 +148,8 @@ Download
 --------
 
 ```groovy
-compile 'com.jiechic.library.sqlbrite:sqlbrite-sqlcipher:0.6.4'
-compile 'net.zetetic:android-database-sqlcipher:3.4.0@aar'
+compile 'com.jiechic.library.sqlbrite:sqlbrite-sqlcipher:1.1.1'
+compile 'net.zetetic:android-database-sqlcipher:3.5.4@aar'
 ```
 
 Snapshots of the development version are available in [Sonatype's `snapshots` repository][snap].

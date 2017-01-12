@@ -1,13 +1,54 @@
 Change Log
 ==========
 
+Version 1.1.1 *(2016-12-20)*
+----------------------------
+
+ * Fix: Correct spelling of `getWritableDatabase()` to match `SQLiteOpenHelper`.
+
+
+Version 1.1.0 *(2016-12-16)*
+----------------------------
+
+ * New: Expose `getReadableDatabase()` and `getWriteableDatabase()` convenience methods.
+ * Fix: Do not cache instances of the readable and writable database internally as the framework
+   does this by default.
+
+
+Version 1.0.0 *(2016-12-02)*
+----------------------------
+
+ * RxJava dependency updated to 1.2.3.
+ * Restore `@WorkerThread` annotations to methods which do I/O. If you're using Java 8 with
+   Retrolambda or Jack you need to use version 2.3 or newer of the Android Gradle plugin to have
+   these annotations correctly handled by lint.
+
+
+Version 0.8.0 *(2016-10-21)*
+----------------------------
+
+ * New: A `Transformer<Query, Query>` can be supplied which is applied to each returned observable.
+ * New: `newNonExclusiveTransaction()` starts transactions in `IMMEDIATE` mode. See the platform
+   or SQLite documentation for more information.
+ * New: APIs for insert/update/delete which allow providing a compiled `SQLiteStatement`.
+
+
+Version 0.7.0 *(2016-07-06)*
+----------------------------
+
+ * New: Allow `mapTo*` mappers to return `null` values. This is useful when querying on a single,
+   nullable column for which `null` is a valid value.
+ * Fix: When `mapToOne` does not emit a value downstream, request another value from upstream to
+   ensure fixed-item requests (such as `take(1)`) as properly honored.
+ * Fix: Add logging to synchronous `execute` methods.
+
+
 Version 0.6.4 *(2016-06-03)*
 ----------------------------
 
 from code https://github.com/square/sqlbrite
 change database for android.database.sqlclient to net.zetetic.database
 Add Full Database Encryption
-
 
 Version 0.6.3 *(2016-04-13)*
 ----------------------------

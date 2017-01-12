@@ -15,12 +15,16 @@
  */
 package com.squareup.sqlbrite;
 
+import android.annotation.TargetApi;
 import android.content.ContentValues;
 import android.database.Cursor;
 import android.database.SQLException;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteException;
+import android.database.sqlite.SQLiteStatement;
+import android.os.Build;
 import android.support.test.InstrumentationRegistry;
+import android.support.test.filters.SdkSuppress;
 import android.support.test.runner.AndroidJUnit4;
 
 import com.squareup.sqlbrite.BriteDatabase.Transaction;
@@ -30,16 +34,23 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
 import rx.Observable;
+import rx.Observable.Transformer;
 import rx.Subscription;
 import rx.functions.Action1;
 import rx.internal.util.RxRingBuffer;
+import rx.subjects.PublishSubject;
 
 import static android.database.sqlite.SQLiteDatabase.CONFLICT_IGNORE;
 import static com.google.common.truth.Truth.assertThat;
@@ -55,6 +66,7 @@ import static com.squareup.sqlbrite.TestDb.TABLE_MANAGER;
 import static com.squareup.sqlbrite.TestDb.employee;
 import static com.squareup.sqlbrite.TestDb.manager;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.Assert.fail;
 
 @RunWith(AndroidJUnit4.class)
@@ -62,13 +74,17 @@ public final class BriteDatabaseTest {
   private final List<String> logs = new ArrayList<>();
   private final RecordingObserver o = new RecordingObserver();
   private final TestScheduler scheduler = new TestScheduler();
+  private final PublishSubject<Void> killSwitch = PublishSubject.create();
 
   private TestDb helper;
   private SQLiteDatabase real;
   private BriteDatabase db;
 
-  @Before public void setUp() {
-    helper = new TestDb(InstrumentationRegistry.getContext());
+  @Rule
+  public TemporaryFolder dbFolder = new TemporaryFolder();
+
+  @Before public void setUp() throws IOException {
+    helper = new TestDb(InstrumentationRegistry.getContext(), dbFolder.newFile().getPath());
     real = helper.getWritableDatabase();
 
     SqlBrite.Logger logger = new SqlBrite.Logger() {
@@ -76,7 +92,12 @@ public final class BriteDatabaseTest {
         logs.add(message);
       }
     };
-    db = new BriteDatabase(helper, logger, scheduler);
+    Transformer<Query, Query> queryTransformer = new Transformer<Query, Query>() {
+      @Override public Observable<Query> call(Observable<Query> queryObservable) {
+        return queryObservable.takeUntil(killSwitch);
+      }
+    };
+    db = new BriteDatabase(helper, logger, scheduler, queryTransformer);
   }
 
   @After public void tearDown() {
@@ -198,6 +219,21 @@ public final class BriteDatabaseTest {
         .isExhausted();
 
     db.insert(TABLE_EMPLOYEE, employee("bob", "Bob Bobberson"), CONFLICT_IGNORE);
+    o.assertNoMoreEvents();
+  }
+
+  @Test public void queryNotNotifiedWhenQueryTransformerUnsubscribes() {
+    db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES).subscribe(o);
+    o.assertCursor()
+        .hasRow("alice", "Alice Allison")
+        .hasRow("bob", "Bob Bobberson")
+        .hasRow("eve", "Eve Evenson")
+        .isExhausted();
+
+    killSwitch.onNext(null);
+    o.assertIsCompleted();
+
+    db.insert(TABLE_EMPLOYEE, employee("john", "John Johnson"));
     o.assertNoMoreEvents();
   }
 
@@ -367,6 +403,45 @@ public final class BriteDatabaseTest {
         .isExhausted();
   }
 
+  @Test public void executeSqlAndTriggerMultipleTables() {
+    db.createQuery(TABLE_MANAGER, SELECT_MANAGER_LIST).subscribe(o);
+    o.assertCursor()
+        .hasRow("Eve Evenson", "Alice Allison")
+        .isExhausted();
+    final RecordingObserver employeeObserver = new RecordingObserver();
+    db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES).subscribe(employeeObserver);
+    employeeObserver.assertCursor()
+        .hasRow("alice", "Alice Allison")
+        .hasRow("bob", "Bob Bobberson")
+        .hasRow("eve", "Eve Evenson")
+        .isExhausted();
+
+    final Set<String> tablesToTrigger = Collections.unmodifiableSet(new HashSet<>(BOTH_TABLES));
+    db.executeAndTrigger(tablesToTrigger,
+        "UPDATE " + TABLE_EMPLOYEE + " SET " + TestDb.EmployeeTable.NAME + " = 'Zach'");
+
+    o.assertCursor()
+        .hasRow("Zach", "Zach")
+        .isExhausted();
+    employeeObserver.assertCursor()
+        .hasRow("alice", "Zach")
+        .hasRow("bob", "Zach")
+        .hasRow("eve", "Zach")
+        .isExhausted();
+  }
+
+  @Test public void executeSqlAndTriggerWithNoTables() {
+    db.createQuery(TABLE_MANAGER, SELECT_MANAGER_LIST).subscribe(o);
+    o.assertCursor()
+        .hasRow("Eve Evenson", "Alice Allison")
+        .isExhausted();
+
+    db.executeAndTrigger(Collections.<String>emptySet(),
+        "UPDATE " + TABLE_EMPLOYEE + " SET " + TestDb.EmployeeTable.NAME + " = 'Zach'");
+
+    o.assertNoMoreEvents();
+  }
+
   @Test public void executeSqlThrowsAndDoesNotTrigger() {
     db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES)
         .skip(1) // Skip initial
@@ -406,6 +481,338 @@ public final class BriteDatabaseTest {
     try {
       db.executeAndTrigger(TABLE_EMPLOYEE,
           "UPDATE not_a_table SET " + TestDb.EmployeeTable.NAME + " = ?", "Zach");
+      fail();
+    } catch (SQLException ignored) {
+    }
+    o.assertNoMoreEvents();
+  }
+
+  @Test public void executeSqlWithArgsAndTriggerWithMultipleTables() {
+    db.createQuery(TABLE_MANAGER, SELECT_MANAGER_LIST).subscribe(o);
+    o.assertCursor()
+        .hasRow("Eve Evenson", "Alice Allison")
+        .isExhausted();
+    final RecordingObserver employeeObserver = new RecordingObserver();
+    db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES).subscribe(employeeObserver);
+    employeeObserver.assertCursor()
+        .hasRow("alice", "Alice Allison")
+        .hasRow("bob", "Bob Bobberson")
+        .hasRow("eve", "Eve Evenson")
+        .isExhausted();
+
+    final Set<String> tablesToTrigger = Collections.unmodifiableSet(new HashSet<>(BOTH_TABLES));
+    db.executeAndTrigger(tablesToTrigger,
+        "UPDATE " + TABLE_EMPLOYEE + " SET " + TestDb.EmployeeTable.NAME + " = ?", "Zach");
+
+    o.assertCursor()
+        .hasRow("Zach", "Zach")
+        .isExhausted();
+    employeeObserver.assertCursor()
+        .hasRow("alice", "Zach")
+        .hasRow("bob", "Zach")
+        .hasRow("eve", "Zach")
+        .isExhausted();
+  }
+
+  @Test public void executeSqlWithArgsAndTriggerWithNoTables() {
+    db.createQuery(BOTH_TABLES, SELECT_MANAGER_LIST).subscribe(o);
+    o.assertCursor()
+        .hasRow("Eve Evenson", "Alice Allison")
+        .isExhausted();
+
+    db.executeAndTrigger(Collections.<String>emptySet(),
+        "UPDATE " + TABLE_EMPLOYEE + " SET " + TestDb.EmployeeTable.NAME + " = ?", "Zach");
+
+    o.assertNoMoreEvents();
+  }
+
+  @Test public void executeInsertAndTrigger() {
+    SQLiteStatement statement = real.compileStatement("INSERT INTO " + TABLE_EMPLOYEE + " ("
+        + TestDb.EmployeeTable.NAME + ", " + TestDb.EmployeeTable.USERNAME + ") "
+        + "VALUES ('Chad Chadson', 'chad')");
+
+    db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES).subscribe(o);
+    o.assertCursor()
+        .hasRow("alice", "Alice Allison")
+        .hasRow("bob", "Bob Bobberson")
+        .hasRow("eve", "Eve Evenson")
+        .isExhausted();
+
+    db.executeInsert(TABLE_EMPLOYEE, statement);
+    o.assertCursor()
+        .hasRow("alice", "Alice Allison")
+        .hasRow("bob", "Bob Bobberson")
+        .hasRow("eve", "Eve Evenson")
+        .hasRow("chad", "Chad Chadson")
+        .isExhausted();
+  }
+
+  @Test public void executeInsertAndDontTrigger() {
+    SQLiteStatement statement = real.compileStatement("INSERT OR IGNORE INTO " + TABLE_EMPLOYEE + " ("
+        + TestDb.EmployeeTable.NAME + ", " + TestDb.EmployeeTable.USERNAME + ") "
+        + "VALUES ('Alice Allison', 'alice')");
+
+    db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES).subscribe(o);
+    o.assertCursor()
+        .hasRow("alice", "Alice Allison")
+        .hasRow("bob", "Bob Bobberson")
+        .hasRow("eve", "Eve Evenson")
+        .isExhausted();
+
+    db.executeInsert(TABLE_EMPLOYEE, statement);
+    o.assertNoMoreEvents();
+  }
+
+  @Test public void executeInsertAndTriggerMultipleTables() {
+    SQLiteStatement statement = real.compileStatement("INSERT INTO " + TABLE_EMPLOYEE + " ("
+        + TestDb.EmployeeTable.NAME + ", " + TestDb.EmployeeTable.USERNAME + ") "
+        + "VALUES ('Chad Chadson', 'chad')");
+
+    final RecordingObserver managerObserver = new RecordingObserver();
+    db.createQuery(TABLE_MANAGER, SELECT_MANAGER_LIST).subscribe(managerObserver);
+    managerObserver.assertCursor()
+        .hasRow("Eve Evenson", "Alice Allison")
+        .isExhausted();
+
+    db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES).subscribe(o);
+    o.assertCursor()
+        .hasRow("alice", "Alice Allison")
+        .hasRow("bob", "Bob Bobberson")
+        .hasRow("eve", "Eve Evenson")
+        .isExhausted();
+
+    final Set<String> employeeAndManagerTables = Collections.unmodifiableSet(new HashSet<>(BOTH_TABLES));
+    db.executeInsert(employeeAndManagerTables, statement);
+
+    o.assertCursor()
+        .hasRow("alice", "Alice Allison")
+        .hasRow("bob", "Bob Bobberson")
+        .hasRow("eve", "Eve Evenson")
+        .hasRow("chad", "Chad Chadson")
+        .isExhausted();
+    managerObserver.assertCursor()
+        .hasRow("Eve Evenson", "Alice Allison")
+        .isExhausted();
+  }
+
+  @Test public void executeInsertAndTriggerNoTables() {
+    SQLiteStatement statement = real.compileStatement("INSERT INTO " + TABLE_EMPLOYEE + " ("
+        + TestDb.EmployeeTable.NAME + ", " + TestDb.EmployeeTable.USERNAME + ") "
+        + "VALUES ('Chad Chadson', 'chad')");
+
+    db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES).subscribe(o);
+    o.assertCursor()
+        .hasRow("alice", "Alice Allison")
+        .hasRow("bob", "Bob Bobberson")
+        .hasRow("eve", "Eve Evenson")
+        .isExhausted();
+
+    db.executeInsert(Collections.<String>emptySet(), statement);
+
+    o.assertNoMoreEvents();
+  }
+
+  @Test public void executeInsertThrowsAndDoesNotTrigger() {
+    SQLiteStatement statement = real.compileStatement("INSERT INTO " + TABLE_EMPLOYEE + " ("
+        + TestDb.EmployeeTable.NAME + ", " + TestDb.EmployeeTable.USERNAME + ") "
+        + "VALUES ('Alice Allison', 'alice')");
+
+    db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES)
+        .skip(1) // Skip initial
+        .subscribe(o);
+
+    try {
+      db.executeInsert(TABLE_EMPLOYEE, statement);
+      fail();
+    } catch (SQLException ignored) {
+    }
+    o.assertNoMoreEvents();
+  }
+
+  @Test public void executeInsertWithArgsAndTrigger() {
+    SQLiteStatement statement = real.compileStatement("INSERT INTO " + TABLE_EMPLOYEE + " ("
+        + TestDb.EmployeeTable.NAME + ", " + TestDb.EmployeeTable.USERNAME + ") VALUES (?, ?)");
+    statement.bindString(1, "Chad Chadson");
+    statement.bindString(2, "chad");
+
+    db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES).subscribe(o);
+    o.assertCursor()
+        .hasRow("alice", "Alice Allison")
+        .hasRow("bob", "Bob Bobberson")
+        .hasRow("eve", "Eve Evenson")
+        .isExhausted();
+
+    db.executeInsert(TABLE_EMPLOYEE, statement);
+    o.assertCursor()
+        .hasRow("alice", "Alice Allison")
+        .hasRow("bob", "Bob Bobberson")
+        .hasRow("eve", "Eve Evenson")
+        .hasRow("chad", "Chad Chadson")
+        .isExhausted();
+  }
+
+  @Test public void executeInsertWithArgsThrowsAndDoesNotTrigger() {
+    SQLiteStatement statement = real.compileStatement("INSERT INTO " + TABLE_EMPLOYEE + " ("
+        + TestDb.EmployeeTable.NAME + ", " + TestDb.EmployeeTable.USERNAME + ") VALUES (?, ?)");
+    statement.bindString(1, "Alice Aliison");
+    statement.bindString(2, "alice");
+
+    db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES)
+        .skip(1) // Skip initial
+        .subscribe(o);
+
+    try {
+      db.executeInsert(TABLE_EMPLOYEE, statement);
+      fail();
+    } catch (SQLException ignored) {
+    }
+    o.assertNoMoreEvents();
+  }
+
+  @TargetApi(Build.VERSION_CODES.HONEYCOMB)
+  @SdkSuppress(minSdkVersion = Build.VERSION_CODES.HONEYCOMB)
+  @Test public void executeUpdateDeleteAndTrigger() {
+    SQLiteStatement statement = real.compileStatement(
+        "UPDATE " + TABLE_EMPLOYEE + " SET " + TestDb.EmployeeTable.NAME + " = 'Zach'");
+
+    db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES).subscribe(o);
+    o.assertCursor()
+        .hasRow("alice", "Alice Allison")
+        .hasRow("bob", "Bob Bobberson")
+        .hasRow("eve", "Eve Evenson")
+        .isExhausted();
+
+    db.executeUpdateDelete(TABLE_EMPLOYEE, statement);
+    o.assertCursor()
+        .hasRow("alice", "Zach")
+        .hasRow("bob", "Zach")
+        .hasRow("eve", "Zach")
+        .isExhausted();
+  }
+
+  @TargetApi(Build.VERSION_CODES.HONEYCOMB)
+  @SdkSuppress(minSdkVersion = Build.VERSION_CODES.HONEYCOMB)
+  @Test public void executeUpdateDeleteAndDontTrigger() {
+    SQLiteStatement statement = real.compileStatement(""
+        + "UPDATE " + TABLE_EMPLOYEE
+        + " SET " + TestDb.EmployeeTable.NAME + " = 'Zach'"
+        + " WHERE " + TestDb.EmployeeTable.NAME + " = 'Rob'");
+
+    db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES).subscribe(o);
+    o.assertCursor()
+        .hasRow("alice", "Alice Allison")
+        .hasRow("bob", "Bob Bobberson")
+        .hasRow("eve", "Eve Evenson")
+        .isExhausted();
+
+    db.executeUpdateDelete(TABLE_EMPLOYEE, statement);
+    o.assertNoMoreEvents();
+  }
+
+  @TargetApi(Build.VERSION_CODES.HONEYCOMB)
+  @SdkSuppress(minSdkVersion = Build.VERSION_CODES.HONEYCOMB)
+  @Test public void executeUpdateDeleteAndTriggerWithMultipleTables() {
+    SQLiteStatement statement = real.compileStatement(
+        "UPDATE " + TABLE_EMPLOYEE + " SET " + TestDb.EmployeeTable.NAME + " = 'Zach'");
+
+
+    final RecordingObserver managerObserver = new RecordingObserver();
+    db.createQuery(TABLE_MANAGER, SELECT_MANAGER_LIST).subscribe(managerObserver);
+    managerObserver.assertCursor()
+        .hasRow("Eve Evenson", "Alice Allison")
+        .isExhausted();
+
+    db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES).subscribe(o);
+    o.assertCursor()
+        .hasRow("alice", "Alice Allison")
+        .hasRow("bob", "Bob Bobberson")
+        .hasRow("eve", "Eve Evenson")
+        .isExhausted();
+
+    final Set<String> employeeAndManagerTables = Collections.unmodifiableSet(new HashSet<>(BOTH_TABLES));
+    db.executeUpdateDelete(employeeAndManagerTables, statement);
+
+    o.assertCursor()
+        .hasRow("alice", "Zach")
+        .hasRow("bob", "Zach")
+        .hasRow("eve", "Zach")
+        .isExhausted();
+    managerObserver.assertCursor()
+        .hasRow("Zach", "Zach")
+        .isExhausted();
+  }
+
+  @TargetApi(Build.VERSION_CODES.HONEYCOMB)
+  @SdkSuppress(minSdkVersion = Build.VERSION_CODES.HONEYCOMB)
+  @Test public void executeUpdateDeleteAndTriggerWithNoTables() {
+    SQLiteStatement statement = real.compileStatement(
+        "UPDATE " + TABLE_EMPLOYEE + " SET " + TestDb.EmployeeTable.NAME + " = 'Zach'");
+
+    db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES).subscribe(o);
+    o.assertCursor()
+        .hasRow("alice", "Alice Allison")
+        .hasRow("bob", "Bob Bobberson")
+        .hasRow("eve", "Eve Evenson")
+        .isExhausted();
+
+    db.executeUpdateDelete(Collections.<String>emptySet(), statement);
+
+    o.assertNoMoreEvents();
+  }
+
+  @TargetApi(Build.VERSION_CODES.HONEYCOMB)
+  @SdkSuppress(minSdkVersion = Build.VERSION_CODES.HONEYCOMB)
+  @Test public void executeUpdateDeleteThrowsAndDoesNotTrigger() {
+    SQLiteStatement statement = real.compileStatement(
+        "UPDATE " + TABLE_EMPLOYEE + " SET " + TestDb.EmployeeTable.USERNAME + " = 'alice'");
+
+    db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES)
+        .skip(1) // Skip initial
+        .subscribe(o);
+
+    try {
+      db.executeUpdateDelete(TABLE_EMPLOYEE, statement);
+      fail();
+    } catch (SQLException ignored) {
+    }
+    o.assertNoMoreEvents();
+  }
+
+  @TargetApi(Build.VERSION_CODES.HONEYCOMB)
+  @SdkSuppress(minSdkVersion = Build.VERSION_CODES.HONEYCOMB)
+  @Test public void executeUpdateDeleteWithArgsAndTrigger() {
+    SQLiteStatement statement = real.compileStatement(
+        "UPDATE " + TABLE_EMPLOYEE + " SET " + TestDb.EmployeeTable.NAME + " = ?");
+    statement.bindString(1, "Zach");
+
+    db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES).subscribe(o);
+    o.assertCursor()
+        .hasRow("alice", "Alice Allison")
+        .hasRow("bob", "Bob Bobberson")
+        .hasRow("eve", "Eve Evenson")
+        .isExhausted();
+
+    db.executeUpdateDelete(TABLE_EMPLOYEE, statement);
+    o.assertCursor()
+        .hasRow("alice", "Zach")
+        .hasRow("bob", "Zach")
+        .hasRow("eve", "Zach")
+        .isExhausted();
+  }
+
+  @TargetApi(Build.VERSION_CODES.HONEYCOMB)
+  @SdkSuppress(minSdkVersion = Build.VERSION_CODES.HONEYCOMB)
+  @Test public void executeUpdateDeleteWithArgsThrowsAndDoesNotTrigger() {
+    SQLiteStatement statement = real.compileStatement(
+        "UPDATE " + TABLE_EMPLOYEE + " SET " + TestDb.EmployeeTable.USERNAME + " = ?");
+    statement.bindString(1, "alice");
+
+    db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES)
+        .skip(1) // Skip initial
+        .subscribe(o);
+
+    try {
+      db.executeUpdateDelete(TABLE_EMPLOYEE, statement);
       fail();
     } catch (SQLException ignored) {
     }
@@ -516,8 +923,10 @@ public final class BriteDatabaseTest {
   }
 
   @Test public void queryCreatedDuringTransactionThrows() {
+    //noinspection CheckResult
     db.newTransaction();
     try {
+      //noinspection CheckResult
       db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES);
       fail();
     } catch (IllegalStateException e) {
@@ -528,6 +937,7 @@ public final class BriteDatabaseTest {
   @Test public void querySubscribedToDuringTransactionThrows() {
     Observable<Query> query = db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES);
 
+    //noinspection CheckResult
     db.newTransaction();
     query.subscribe(o);
     o.assertErrorContains("Cannot subscribe to observable query in a transaction.");
@@ -538,6 +948,7 @@ public final class BriteDatabaseTest {
 
     Observable<Query> query = db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES);
 
+    //noinspection CheckResult
     db.newTransaction();
     query.subscribe(o);
     o.assertErrorContains("Cannot subscribe to observable query in a transaction.");
@@ -747,6 +1158,42 @@ public final class BriteDatabaseTest {
     o.assertNoMoreEvents();
   }
 
+  @TargetApi(Build.VERSION_CODES.HONEYCOMB)
+  @SdkSuppress(minSdkVersion = Build.VERSION_CODES.HONEYCOMB)
+  @Test public void nonExclusiveTransactionWorks() throws InterruptedException {
+    final CountDownLatch transactionStarted = new CountDownLatch(1);
+    final CountDownLatch transactionProceed = new CountDownLatch(1);
+    final CountDownLatch transactionCompleted = new CountDownLatch(1);
+
+    new Thread() {
+      @Override public void run() {
+        Transaction transaction = db.newNonExclusiveTransaction();
+        transactionStarted.countDown();
+        try {
+          db.insert(TABLE_EMPLOYEE, employee("hans", "Hans Hanson"));
+          transactionProceed.await(10, SECONDS);
+        } catch (InterruptedException e) {
+          throw new RuntimeException("Exception in transaction thread", e);
+        }
+        transaction.markSuccessful();
+        transaction.close();
+        transactionCompleted.countDown();
+      }
+    }.start();
+
+    assertThat(transactionStarted.await(10, SECONDS)).isTrue();
+
+    //Simple query
+    Employee employees = db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES + " LIMIT 1")
+            .lift(Query.mapToOne(Employee.MAPPER))
+            .toBlocking()
+            .first();
+    assertThat(employees).isEqualTo(new Employee("alice", "Alice Allison"));
+
+    transactionProceed.countDown();
+    assertThat(transactionCompleted.await(10, SECONDS)).isTrue();
+  }
+
   @Test public void backpressureSupportedWhenConsumerSlow() {
     o.doRequest(2);
 
@@ -811,13 +1258,16 @@ public final class BriteDatabaseTest {
     scheduler.triggerActions();
 
     // Assert we got all the events from the queue plus the one buffered from backpressure.
-    for (int i = 0; i < RxRingBuffer.SIZE + 1; i++) {
+    // Note: Because of the rebatching request behavior of observeOn, the initial emission is
+    // counted against this amount which is why there is no +1 on SIZE.
+    for (int i = 0; i < RxRingBuffer.SIZE; i++) {
       o.assertCursor(); // Ignore contents, just assert we got notified.
     }
   }
 
   @Test public void badQueryThrows() {
     try {
+      //noinspection CheckResult
       db.query("SELECT * FROM missing");
       fail();
     } catch (SQLiteException e) {

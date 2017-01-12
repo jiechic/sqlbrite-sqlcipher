@@ -42,7 +42,7 @@ android {
 
   lintOptions {
     textOutput 'stdout'
-    abortOnError false
+    textReport true
   }
 
   buildTypes {

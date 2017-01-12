@@ -21,10 +21,12 @@ import android.support.test.InstrumentationRegistry;
 
 import com.squareup.sqlbrite.SqlBrite.Query;
 import com.squareup.sqlbrite.TestDb.Employee;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.Before;
 import org.junit.Test;
 import rx.Observable;
+import rx.functions.Action1;
 import rx.functions.Func1;
 import rx.observables.BlockingObservable;
 import rx.observers.TestSubscriber;
@@ -33,13 +35,14 @@ import rx.schedulers.Schedulers;
 import static com.google.common.truth.Truth.assertThat;
 import static com.squareup.sqlbrite.TestDb.SELECT_EMPLOYEES;
 import static com.squareup.sqlbrite.TestDb.TABLE_EMPLOYEE;
+import static org.junit.Assert.fail;
 
 public final class QueryTest {
   private BriteDatabase db;
 
   @Before public void setUp() {
     SqlBrite sqlBrite = SqlBrite.create();
-    TestDb helper = new TestDb(InstrumentationRegistry.getContext());
+    TestDb helper = new TestDb(InstrumentationRegistry.getContext(), null /* memory */);
     db = sqlBrite.wrapDatabaseHelper(helper, Schedulers.immediate());
   }
 
@@ -51,32 +54,34 @@ public final class QueryTest {
     assertThat(employees).isEqualTo(new Employee("alice", "Alice Allison"));
   }
 
-  @Test public void mapToOneThrowsOnMapperNull() {
-    BlockingObservable<Employee> employees =
-        db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES) //
-            .lift(Query.mapToOne(new Func1<Cursor, Employee>() {
-              @Override public Employee call(Cursor cursor) {
-                return null;
-              }
-            })) //
-            .toBlocking();
-    try {
-      employees.first();
-    } catch (NullPointerException e) {
-      assertThat(e).hasMessage("Mapper returned null for row 1");
-      assertThat(e.getCause()).hasMessage(
-          "OnError while emitting onNext value: SELECT username, name FROM employee");
-    }
+  @Test public void mapToOneAllowsMapperNull() {
+    Func1<Cursor, Employee> mapToNull = new Func1<Cursor, Employee>() {
+      @Override public Employee call(Cursor cursor) {
+        return null;
+      }
+    };
+    Employee employee = db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES + " LIMIT 1") //
+        .lift(Query.mapToOne(mapToNull)) //
+        .toBlocking() //
+        .first();
+    assertThat(employee).isNull();
   }
 
-  @Test public void mapToOneNoOpOnNoRows() {
+  @Test public void mapToOneNoOpAndReRequestOnNoRows() {
+    final List<Long> requests = new ArrayList<>();
     List<Employee> employees = db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES + " WHERE 1=2")
         .take(1)
+        .doOnRequest(new Action1<Long>() {
+          @Override public void call(Long n) {
+            requests.add(n);
+          }
+        })
         .lift(Query.mapToOne(Employee.MAPPER))
         .toList()
         .toBlocking()
         .first();
     assertThat(employees).isEmpty();
+    assertThat(requests).containsExactly(Long.MAX_VALUE, 1L);
   }
 
   @Test public void mapToOneThrowsOnMultipleRows() {
@@ -86,6 +91,7 @@ public final class QueryTest {
             .toBlocking();
     try {
       employees.first();
+      fail();
     } catch (IllegalStateException e) {
       assertThat(e).hasMessage("Cursor returned more than 1 row");
       assertThat(e.getCause()).hasMessage(
@@ -117,13 +123,22 @@ public final class QueryTest {
     assertThat(employees).isEqualTo(new Employee("alice", "Alice Allison"));
   }
 
-  @Test public void mapToOneOrDefaultReturnsDefaultWhenNoRows() {
+  @Test public void mapToOneOrDefaultReturnsDefaultAndDoesNotReRequestWhenNoRows() {
+    final List<Long> requests = new ArrayList<>();
     Employee defaultEmployee = new Employee("bob", "Bob Bobberson");
-    Employee employees = db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES + " WHERE 1=2")
+    List<Employee> employees = db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES + " WHERE 1=2")
+        .take(1)
+        .doOnRequest(new Action1<Long>() {
+          @Override public void call(Long n) {
+            requests.add(n);
+          }
+        })
         .lift(Query.mapToOneOrDefault(Employee.MAPPER, defaultEmployee))
+        .toList()
         .toBlocking()
         .first();
-    assertThat(employees).isSameAs(defaultEmployee);
+    assertThat(employees).containsExactly(defaultEmployee);
+    assertThat(requests).containsExactly(Long.MAX_VALUE);
   }
 
   @Test public void mapToOneOrDefaultAllowsNullDefault() {
@@ -134,22 +149,17 @@ public final class QueryTest {
     assertThat(employees).isNull();
   }
 
-  @Test public void mapToOneOrDefaultThrowsOnMapperNull() {
-    BlockingObservable<Employee> employees =
-        db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES) //
-            .lift(Query.mapToOneOrDefault(new Func1<Cursor, Employee>() {
-              @Override public Employee call(Cursor cursor) {
-                return null;
-              }
-            }, null)) //
-            .toBlocking();
-    try {
-      employees.first();
-    } catch (NullPointerException e) {
-      assertThat(e).hasMessage("Mapper returned null for row 1");
-      assertThat(e.getCause()).hasMessage(
-          "OnError while emitting onNext value: SELECT username, name FROM employee");
-    }
+  @Test public void mapToOneOrDefaultAllowsMapperNull() {
+    Func1<Cursor, Employee> mapToNull = new Func1<Cursor, Employee>() {
+      @Override public Employee call(Cursor cursor) {
+        return null;
+      }
+    };
+    Employee employee = db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES + " LIMIT 1") //
+        .lift(Query.mapToOneOrDefault(mapToNull, new Employee("bob", "Bob Bobberson"))) //
+        .toBlocking() //
+        .first();
+    assertThat(employee).isNull();
   }
 
   @Test public void mapToOneOrDefaultThrowsOnMultipleRows() {
@@ -159,6 +169,7 @@ public final class QueryTest {
             .toBlocking();
     try {
       employees.first();
+      fail();
     } catch (IllegalStateException e) {
       assertThat(e).hasMessage("Cursor returned more than 1 row");
       assertThat(e.getCause()).hasMessage(
@@ -202,24 +213,23 @@ public final class QueryTest {
     assertThat(employees).isEmpty();
   }
 
-  @Test public void mapToListThrowsOnMapperNull() {
-    BlockingObservable<List<Employee>> employees =
-        db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES) //
-            .lift(Query.mapToList(new Func1<Cursor, Employee>() {
-              private int count;
+  @Test public void mapToListReturnsNullOnMapperNull() {
+    Func1<Cursor, Employee> mapToNull = new Func1<Cursor, Employee>() {
+      private int count;
 
-              @Override public Employee call(Cursor cursor) {
-                return count++ == 2 ? null : Employee.MAPPER.call(cursor);
-              }
-            })) //
-            .toBlocking();
-    try {
-      employees.first();
-    } catch (NullPointerException e) {
-      assertThat(e).hasMessage("Mapper returned null for row 3");
-      assertThat(e.getCause()).hasMessage(
-          "OnError while emitting onNext value: SELECT username, name FROM employee");
-    }
+      @Override public Employee call(Cursor cursor) {
+        return count++ == 2 ? null : Employee.MAPPER.call(cursor);
+      }
+    };
+    List<Employee> employees = db.createQuery(TABLE_EMPLOYEE, SELECT_EMPLOYEES) //
+            .lift(Query.mapToList(mapToNull)) //
+            .toBlocking() //
+            .first();
+
+    assertThat(employees).containsExactly(
+        new Employee("alice", "Alice Allison"),
+        new Employee("bob", "Bob Bobberson"),
+        null);
   }
 
   @Test public void mapToListIgnoresNullCursor() {

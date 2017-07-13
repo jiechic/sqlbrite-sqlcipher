@@ -6,7 +6,6 @@ buildscript {
 }
 
 apply plugin: 'com.android.library'
-apply from: rootProject.file('gradle/android-findbugs.gradle')
 
 dependencies {
   compile rootProject.ext.rxJava
@@ -14,9 +13,7 @@ dependencies {
   provided rootProject.ext.sqlcipher
 
   androidTestCompile rootProject.ext.supportTestRunner
-  androidTestCompile(rootProject.ext.truth) {
-    exclude group: 'junit' // Android has JUnit built in.
-  }
+  androidTestCompile rootProject.ext.truth
 }
 
 def isCi() {
@@ -28,6 +25,8 @@ android {
   buildToolsVersion rootProject.ext.buildToolsVersion
 
   defaultConfig {
+    minSdkVersion rootProject.ext.minSdkVersion
+
     testInstrumentationRunner 'android.support.test.runner.AndroidJUnitRunner'
   }
 
@@ -53,19 +52,6 @@ android {
 
   packagingOptions {
     exclude 'LICENSE.txt'
-  }
-}
-
-
-if (isCi()) {
-  println 'Running on CI. Adding task to start emulator.'
-
-  task startEmulator << {
-    "$rootDir/gradle/start-emulator.sh".execute().waitFor()
-  }
-
-  android.testVariants.all { variant ->
-    variant.connectedInstrumentTest.dependsOn startEmulator
   }
 }
 

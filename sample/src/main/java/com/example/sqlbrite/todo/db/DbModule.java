@@ -16,17 +16,13 @@
 package com.example.sqlbrite.todo.db;
 
 import android.app.Application;
-
-import com.squareup.sqlbrite.BriteDatabase;
-import com.squareup.sqlbrite.SqlBrite;
-
 import net.sqlcipher.database.SQLiteOpenHelper;
-
-import javax.inject.Singleton;
-
+import com.squareup.sqlbrite2.BriteDatabase;
+import com.squareup.sqlbrite2.SqlBrite;
 import dagger.Module;
 import dagger.Provides;
-import rx.schedulers.Schedulers;
+import io.reactivex.schedulers.Schedulers;
+import javax.inject.Singleton;
 import timber.log.Timber;
 
 @Module
@@ -41,16 +37,15 @@ public final class DbModule {
         return new DbOpenHelper(application);
     }
 
-    @Provides
-    @Singleton
-    SqlBrite provideSqlBrite() {
-        return SqlBrite.create(new SqlBrite.Logger() {
-            @Override
-            public void log(String message) {
-                Timber.tag("Database").v(message);
-            }
-        });
-    }
+  @Provides @Singleton SqlBrite provideSqlBrite() {
+    return new SqlBrite.Builder()
+        .logger(new SqlBrite.Logger() {
+          @Override public void log(String message) {
+            Timber.tag("Database").v(message);
+          }
+        })
+        .build();
+  }
 
     @Provides
     @Singleton

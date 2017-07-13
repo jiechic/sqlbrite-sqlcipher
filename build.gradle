@@ -47,7 +47,7 @@ ext {
   junit = 'junit:junit:4.12'
   truth = 'com.google.truth:truth:0.30'
 
-  sqlcipher = 'net.zetetic:android-database-sqlcipher:3.5.4@aar'
+  sqlcipher = 'net.zetetic:android-database-sqlcipher:3.5.7@aar'
 }
 
 configurations {

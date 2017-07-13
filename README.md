@@ -149,17 +149,17 @@ Download
 
 ```groovy
 compile 'com.jiechic.library.sqlbrite:sqlbrite-sqlcipher:2.0.0'
-compile 'net.zetetic:android-database-sqlcipher:3.5.4@aar'
+compile 'net.zetetic:android-database-sqlcipher:3.5.7@aar'
 ```
 
 For the 'interop' module that bridges 1.x and 2.x:
 ```groovy
-compile 'com.jiechic.library.sqlbrite:sqlbrite-interop:2.0.0'
+compile 'com.squareup.sqlbrite2:sqlbrite-interop:2.0.0'
 ```
 
 For the 'kotlin' module that adds extension functions to `Observable<Query>`:
 ```groovy
-compile 'com.jiechic.library.sqlbrite:sqlbrite-kotlin:2.0.0'
+compile 'com.squareup.sqlbrite2:sqlbrite-kotlin:2.0.0'
 ```
 
 

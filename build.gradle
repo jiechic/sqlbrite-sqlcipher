@@ -21,11 +21,11 @@ ext {
   buildToolsVersion = '25.0.3'
   kotlinVersion = '1.1.2-4'
 
-  androidPlugin = 'com.android.tools.build:gradle:2.2.3'
+  androidPlugin = 'com.android.tools.build:gradle:2.3.3'
   bintrayPlugin = 'com.jfrog.bintray.gradle:gradle-bintray-plugin:1.7.3'
   kotlinPlugin = "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion"
 
-  sqlBriteV1 = 'com.squareup.sqlbrite:sqlbrite:1.1.2'
+  sqlBriteV1 = 'com.jiechic.library.sqlbrite:sqlbrite:1.1.1'
 
   // Android dependencies.
   supportV4 = 'com.android.support:support-v4:25.3.1'

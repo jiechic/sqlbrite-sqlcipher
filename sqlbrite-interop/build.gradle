@@ -1,6 +1,7 @@
 buildscript {
   dependencies {
     classpath rootProject.ext.androidPlugin
+    classpath rootProject.ext.bintrayPlugin
   }
 }
 
@@ -53,4 +54,4 @@ android {
   }
 }
 
-apply from: rootProject.file('gradle/gradle-mvn-push.gradle')
+apply from: rootProject.file('gradle/gradle-jcenter-push.gradle')
